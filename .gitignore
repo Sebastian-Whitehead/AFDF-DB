@@ -6,3 +6,6 @@ __pycache__/
 *.egg-info/
 .vscode/
 postgres_data/
+*.db
+*.sqlite
+*.sqlite3
