@@ -28,16 +28,93 @@ The API is organized as domain routers inside one FastAPI service. `app/main.py`
 
 The service currently includes casino-specific binding and game workflows alongside its shared account and ledger API. Casino game lifecycle data is isolated in `casino_game_settlements`; balances and financial transactions use the generic economy tables. Casino application settings remain owned by the casino program.
 
-## Run with Docker
+## Setup and run
 
-1. Copy `.env.example` to `.env`. Set a strong `POSTGRES_PASSWORD` and replace the API token placeholders with unique secrets. `API_CLIENTS` uses `client-name=token` pairs. `API_READ_ONLY_CLIENTS` is a list of client names that can only call protected `GET` endpoints; `API_ADMIN_CLIENTS` is a list of trusted clients allowed to link or migrate identities. Never grant admin scope to a read-only client, and never commit `.env`.
-2. Start the service:
+### Requirements
 
-```text
-docker compose up --build
+- Docker Desktop with Docker Compose (recommended), or Python 3.12+ and a reachable PostgreSQL database.
+- Git, if cloning this repository.
+
+### Recommended: Docker Compose
+
+1. Clone the repository and enter its directory:
+
+   ```powershell
+   git clone https://github.com/Sebastian-Whitehead/AFDF-DB.git
+   Set-Location AFDF-DB
+   ```
+
+2. Create your local environment file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+3. Edit `.env` before starting the service:
+   - Set `POSTGRES_PASSWORD` to a strong, unique password.
+   - Replace every `API_CLIENTS` placeholder with a unique token. Entries use `client-name=token`, separated by commas; tokens cannot contain commas.
+   - `API_READ_ONLY_CLIENTS` lists client names restricted to protected `GET` requests.
+   - `API_ADMIN_CLIENTS` lists trusted client names allowed to link or migrate account identities. Each name must also be in `API_CLIENTS`, and cannot be read-only.
+   - `default_read` in the example is a predictable development-only token; replace it before exposing the service beyond a trusted local environment.
+   - Do not commit or share `.env`.
+
+4. Build and start the API and private PostgreSQL database:
+
+   ```powershell
+   docker compose up --build -d
+   ```
+
+   On first startup the API applies database migrations automatically. To follow logs or stop the services:
+
+   ```powershell
+   docker compose logs -f economy-api
+   docker compose down
+   ```
+
+   Database data is stored in the `postgres_data` Docker volume and persists when containers stop. To delete that volume and its database contents, use `docker compose down -v` only when you intentionally want to erase the local database.
+
+### Local Python development
+
+Use this option when you want to run Uvicorn on the host instead of inside Docker. You need a PostgreSQL instance reachable from your computer; the Compose database is not published to the host.
+
+1. Create `.env` as described above and set `DATABASE_URL` to your PostgreSQL connection string, for example:
+
+   ```text
+   DATABASE_URL=postgresql+psycopg://economy:your-password@localhost:5432/economy
+   ```
+
+2. Create and activate a virtual environment, then install the project and test dependencies:
+
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install --upgrade pip
+   python -m pip install -e ".[test]"
+   ```
+
+3. Apply database migrations and start the development server:
+
+   ```powershell
+   alembic upgrade head
+   uvicorn app.main:app --reload
+   ```
+
+   The API is available at `http://localhost:8000`. Stop Uvicorn with `Ctrl+C`.
+
+### Check the running service
+
+- Liveness: `http://localhost:8000/health/live`
+- Database readiness: `http://localhost:8000/health/ready`
+- Interactive API documentation: `http://localhost:8000/docs`
+
+Protected routes require an `X-API-Key` header whose value is a token from `API_CLIENTS`. For example, set a local shell variable and make an authenticated request:
+
+```powershell
+$headers = @{ "X-API-Key" = "your-configured-token" }
+Invoke-RestMethod -Uri "http://localhost:8000/api/v1/accounts/steam/76561198000000000" -Headers $headers
 ```
 
-The container applies Alembic migrations before starting the API. API docs are at `http://localhost:8000/docs`; protected endpoints require `X-API-Key`. Restart the service after changing `.env` so the new client settings take effect. Read-only keys can access `GET` routes but are denied `PUT` and `POST` routes.
+Read-only clients can call protected `GET` endpoints but cannot mutate data. Identity linking and migration require a client listed in `API_ADMIN_CLIENTS`; see [API_REFERENCE.md](./API_REFERENCE.md) for the full setup and request examples.
 
 ### Link a Steam ID and Discord ID
 
@@ -70,14 +147,4 @@ python -m scripts.migrate_sqlite --sqlite-path economy.db --confirm-import
 
 If intentionally importing another legacy database, back it up first and verify every balance. The importer rejects non-integer balances and links imported accounts to their Discord snowflakes; Steam IDs can be linked later.
 
-## Local development
-
-```text
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[test]"
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-Set `DATABASE_URL` and `API_CLIENTS` in `.env`. Casino-specific settings are owned by the casino program; its balance is represented as a typed account in the shared economy ledger.
+Casino-specific settings are owned by the casino program; its balance is represented as a typed account in the shared economy ledger.
