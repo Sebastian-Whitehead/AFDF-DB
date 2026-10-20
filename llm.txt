@@ -11,15 +11,23 @@ General-purpose FastAPI economy service backed by PostgreSQL. It provides shared
 - Steam and Discord IDs are decimal strings in API contracts to preserve precision in clients.
 - Accounts may begin with either identity; link the other through `POST /api/v1/accounts/{provider}/{identity}/identities`.
 - The shared economy service has no `settings` table. Casino configuration is owned by the casino program; its account marker lives on its `accounts` row.
+- The casino-specific lifecycle table is `casino_game_settlements`; shared accounts and ledger tables retain general names.
 
 ## Current transaction model
 
 - `transactions` records type, reference/idempotency key, reason, actor account or service label, timestamp, and optional `reversal_of_transaction_id`.
-- Each new transaction records its configured API client name and a SHA-256 API-key fingerprint for caller auditing; raw API keys are never stored in the ledger. `API_CLIENTS` pairs each name directly with its token. Historical transactions have neither value.
+- Each new transaction records its configured API client name and a SHA-256 API-key fingerprint for caller auditing; raw API keys are never stored in the ledger. Historical transactions have neither value.
 - `transaction_entries` records signed money/credit deltas per internal account. The entries identify debits and credits and expose linked Steam/Discord identities in API responses.
 - `external_money` and `external_credits` system accounts are the explicit counterpart entries for external adjustments and credit exchange. System balances can be negative; non-system balances cannot.
 - A transaction can be fully reversed once by appending a compensating transaction. No historical transaction or entry should be edited or deleted.
 - Game reservations, payouts, and refunds also write entries. Game refunds are compensating transactions.
+
+## API client credentials and permissions
+
+- Configure tokens as explicit comma-separated `name=token` pairs in `.env` under `API_CLIENTS`; token values must not contain commas. Example shape: `API_CLIENTS=casino-bot=<secret-token>`.
+- `API_READ_ONLY_CLIENTS` is a comma-separated subset of configured client names. Read-only clients can use protected `GET` routes; protected mutation routes require a write-capable client. Unlisted clients have read/write access.
+- Transaction history includes the client name and SHA-256 token fingerprint. The fingerprint supports matching transactions to a token without storing the secret; the name is the stable human-readable integration identifier.
+- `.env` is ignored by Git. Never expose or commit token values, passwords, or other secrets.
 
 ## Runtime and development
 
@@ -29,12 +37,13 @@ General-purpose FastAPI economy service backed by PostgreSQL. It provides shared
 - API docs: `http://localhost:8000/docs`
 - Health endpoints: `/health/live`, `/health/ready`
 - Protected routes require `X-API-Key`.
-- `.env` is ignored by Git; never commit API keys or database passwords.
 - Docker applies Alembic migrations before starting Uvicorn.
+- The deployed PostgreSQL database and login role are named `economy`.
+- Current Alembic revision: `0006_api_key_names`.
 
 ## Legacy SQLite
 
-The checked-in `economy.db` stores Discord IDs only and has no Steam mapping. The user chose not to carry the current legacy balances forward. Do not run the importer for that database. The importer requires `--confirm-import`, rejects non-integer balances, and if intentionally used creates Discord-linked accounts.
+The local `economy.db` file stores Discord IDs only and has no Steam mapping. The user chose not to carry those legacy balances forward. Do not run the importer for that database. The importer requires `--confirm-import`, rejects non-integer balances, and if intentionally used creates Discord-linked accounts.
 
 ## Important constraints
 
@@ -46,4 +55,4 @@ The checked-in `economy.db` stores Discord IDs only and has no Steam mapping. Th
 
 ## Verification status
 
-The model/API changes and unit tests must be validated locally. No claim of live PostgreSQL or Docker integration verification should be made unless those checks are run in this environment.
+The API-key naming and transaction audit changes were validated with 18 passing tests, Python compilation, Compose configuration checks, and a live API health/read test. The live schema was verified at revision `0006_api_key_names`. Re-run relevant tests and deployment checks after further changes; do not assume these verification results cover later edits.
