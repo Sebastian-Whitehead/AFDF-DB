@@ -72,6 +72,12 @@ class TransactionResponse(BaseModel):
     actor_steam_id: str | None
     actor_discord_id: str | None
     actor_label: str | None
+    api_key_name: str | None = Field(
+        description="Configured API client name; null for historical transactions"
+    )
+    api_key_fingerprint: str | None = Field(
+        description="SHA-256 fingerprint of the API key used; null for historical transactions"
+    )
     reversal_of_transaction_id: UUID | None
     created_at: datetime
     entries: list[TransactionEntryResponse]

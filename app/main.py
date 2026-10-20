@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .auth import require_api_key
+from .auth import AuthenticatedApiKey, require_read_api_key, require_write_api_key
 from .config import get_settings
 from .db import engine, get_session
 from .models import Account, AccountIdentity, CasinoGameSettlement, Transaction, TransactionEntry
@@ -187,6 +187,8 @@ async def transaction_response(session: AsyncSession, transaction: Transaction) 
         actor_steam_id=actor_identities.get("steam"),
         actor_discord_id=actor_identities.get("discord"),
         actor_label=transaction.actor_label,
+        api_key_name=transaction.api_key_name,
+        api_key_fingerprint=transaction.api_key_fingerprint,
         reversal_of_transaction_id=transaction.reversal_of_transaction_id,
         reversed_by_transaction_id=reversed_by,
         created_at=transaction.created_at,
@@ -265,7 +267,7 @@ async def ready(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
 @app.get(
     "/api/v1/accounts/{provider}/{identity}",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_read_api_key)],
 )
 async def get_account(
     provider: IdentityProvider,
@@ -280,7 +282,7 @@ async def get_account(
 @app.put(
     "/api/v1/accounts/{provider}/{identity}",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def ensure_account_route(
     provider: IdentityProvider,
@@ -295,7 +297,7 @@ async def ensure_account_route(
 @app.post(
     "/api/v1/accounts/{provider}/{identity}/identities",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def link_identity(
     provider: IdentityProvider,
@@ -339,6 +341,7 @@ async def adjust_balance(
     field: Literal["money", "credits"],
     request: AdjustmentRequest,
     session: AsyncSession,
+    request_api_key: AuthenticatedApiKey,
 ) -> AccountResponse:
     identity = identity_value(identity, provider)
     account = await require_account(session, provider, identity)
@@ -365,6 +368,8 @@ async def adjust_balance(
         transaction_type="admin_adjustment",
         reference_id=request.reference_id,
         description=expected_description,
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         **actor_fields,
     )
     setattr(account, field, current + request.amount)
@@ -395,29 +400,31 @@ async def adjust_balance(
 @app.post(
     "/api/v1/accounts/{provider}/{identity}/money/adjust",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def adjust_money(
     provider: IdentityProvider,
     identity: str,
     request: AdjustmentRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> AccountResponse:
-    return await adjust_balance(provider, identity, "money", request, session)
+    return await adjust_balance(provider, identity, "money", request, session, request_api_key)
 
 
 @app.post(
     "/api/v1/accounts/{provider}/{identity}/credits/adjust",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def adjust_credits(
     provider: IdentityProvider,
     identity: str,
     request: AdjustmentRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> AccountResponse:
-    return await adjust_balance(provider, identity, "credits", request, session)
+    return await adjust_balance(provider, identity, "credits", request, session, request_api_key)
 
 
 async def exchange(
@@ -426,6 +433,7 @@ async def exchange(
     request: ExchangeRequest,
     purchase: bool,
     session: AsyncSession,
+    request_api_key: AuthenticatedApiKey,
 ) -> AccountResponse:
     identity = identity_value(identity, provider)
     account = await require_account(session, provider, identity)
@@ -459,6 +467,8 @@ async def exchange(
         transaction_type="credit_purchase" if purchase else "credit_sale",
         reference_id=request.reference_id,
         description=expected_description,
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         **actor_fields,
     )
     transaction.entries.append(
@@ -489,35 +499,37 @@ async def exchange(
 @app.post(
     "/api/v1/accounts/{provider}/{identity}/credits/purchase",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def purchase_credits(
     provider: IdentityProvider,
     identity: str,
     request: ExchangeRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> AccountResponse:
-    return await exchange(provider, identity, request, True, session)
+    return await exchange(provider, identity, request, True, session, request_api_key)
 
 
 @app.post(
     "/api/v1/accounts/{provider}/{identity}/credits/sell",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def sell_credits(
     provider: IdentityProvider,
     identity: str,
     request: ExchangeRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> AccountResponse:
-    return await exchange(provider, identity, request, False, session)
+    return await exchange(provider, identity, request, False, session, request_api_key)
 
 
 @app.get(
     "/api/v1/accounts/{provider}/{identity}/transactions",
     response_model=list[TransactionResponse],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_read_api_key)],
 )
 async def account_transactions(
     provider: IdentityProvider,
@@ -541,7 +553,7 @@ async def account_transactions(
 @app.get(
     "/api/v1/casino/balance",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_read_api_key)],
 )
 async def casino_balance(session: AsyncSession = Depends(get_session)) -> AccountResponse:
     account = await casino_account(session)
@@ -553,7 +565,7 @@ async def casino_balance(session: AsyncSession = Depends(get_session)) -> Accoun
 @app.post(
     "/api/v1/casino/bind",
     response_model=AccountResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def bind_casino(
     request: CasinoBindRequest,
@@ -582,7 +594,7 @@ async def bind_casino(
 @app.get(
     "/api/v1/leaderboard",
     response_model=LeaderboardResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_read_api_key)],
 )
 async def leaderboard(
     currency: Literal["money", "credits"] = Query("money"),
@@ -617,12 +629,13 @@ async def leaderboard(
 @app.post(
     "/api/v1/transactions/{transaction_id}/reverse",
     response_model=TransactionResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def reverse_transaction(
     transaction_id: UUID,
     request: ReverseTransactionRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> TransactionResponse:
     original = await session.scalar(
         select(Transaction).where(Transaction.id == transaction_id).with_for_update()
@@ -688,6 +701,8 @@ async def reverse_transaction(
         reference_id=request.reference_id,
         description=request.reason,
         reversal_of_transaction_id=original.id,
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         **actor_fields,
     )
     for account_id, (money_delta, credits_delta) in deltas.items():
@@ -729,7 +744,7 @@ def to_game_response(game: CasinoGameSettlement) -> GameResponse:
 @app.get(
     "/api/v1/games/{game_id}",
     response_model=GameResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_read_api_key)],
 )
 async def get_game(game_id: UUID, session: AsyncSession = Depends(get_session)) -> GameResponse:
     game = await session.get(CasinoGameSettlement, game_id)
@@ -741,12 +756,13 @@ async def get_game(game_id: UUID, session: AsyncSession = Depends(get_session)) 
 @app.post(
     "/api/v1/games/{game_id}/reserve",
     response_model=GameResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def reserve_game(
     game_id: UUID,
     request: ReserveRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> GameResponse:
     existing = await session.get(CasinoGameSettlement, game_id)
     if existing is not None:
@@ -781,6 +797,8 @@ async def reserve_game(
         idempotency_key=request.reference_id,
         transaction_type=f"{request.currency}_wager",
         reference_id=request.reference_id,
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         **actor_fields,
     )
     for account_id, amount in amounts.items():
@@ -830,12 +848,13 @@ async def reserve_game(
 @app.post(
     "/api/v1/games/{game_id}/settle",
     response_model=GameResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def settle_game(
     game_id: UUID,
     request: SettleRequest,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> GameResponse:
     game = await session.scalar(
         select(CasinoGameSettlement).where(CasinoGameSettlement.game_id == game_id).with_for_update()
@@ -881,6 +900,8 @@ async def settle_game(
         idempotency_key=f"game-settle:{game_id}",
         transaction_type=f"{game.wager_currency}_payout",
         reference_id=str(game_id),
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         **actor_fields,
     )
     transaction.entries.append(
@@ -902,11 +923,12 @@ async def settle_game(
 @app.post(
     "/api/v1/games/{game_id}/refund",
     response_model=GameResponse,
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_write_api_key)],
 )
 async def refund_game(
     game_id: UUID,
     session: AsyncSession = Depends(get_session),
+    request_api_key: AuthenticatedApiKey = Depends(require_write_api_key),
 ) -> GameResponse:
     game = await session.scalar(
         select(CasinoGameSettlement).where(CasinoGameSettlement.game_id == game_id).with_for_update()
@@ -935,6 +957,8 @@ async def refund_game(
         transaction_type=f"{game.wager_currency}_refund",
         reference_id=str(game_id),
         reversal_of_transaction_id=reservation_transaction_id,
+        api_key_name=request_api_key.name,
+        api_key_fingerprint=request_api_key.fingerprint,
         actor_label="game_refund",
     )
     for entry in reserve_entries:

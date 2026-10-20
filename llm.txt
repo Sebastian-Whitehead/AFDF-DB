@@ -15,6 +15,7 @@ General-purpose FastAPI economy service backed by PostgreSQL. It provides shared
 ## Current transaction model
 
 - `transactions` records type, reference/idempotency key, reason, actor account or service label, timestamp, and optional `reversal_of_transaction_id`.
+- Each new transaction records its configured API client name and a SHA-256 API-key fingerprint for caller auditing; raw API keys are never stored in the ledger. `API_CLIENTS` pairs each name directly with its token. Historical transactions have neither value.
 - `transaction_entries` records signed money/credit deltas per internal account. The entries identify debits and credits and expose linked Steam/Discord identities in API responses.
 - `external_money` and `external_credits` system accounts are the explicit counterpart entries for external adjustments and credit exchange. System balances can be negative; non-system balances cannot.
 - A transaction can be fully reversed once by appending a compensating transaction. No historical transaction or entry should be edited or deleted.

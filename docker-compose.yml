@@ -17,7 +17,8 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-economy}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-economy}
-      API_KEYS: ${API_KEYS:?Set API_KEYS in .env}
+      API_CLIENTS: ${API_CLIENTS:?Set API_CLIENTS in .env}
+      API_READ_ONLY_CLIENTS: ${API_READ_ONLY_CLIENTS:-}
       TOKEN_PRICE: ${TOKEN_PRICE:-10}
       CHALLENGE_FEE_ENABLED: ${CHALLENGE_FEE_ENABLED:-true}
       CHALLENGE_FEE_PERCENT: ${CHALLENGE_FEE_PERCENT:-5}

@@ -54,12 +54,15 @@ transaction_type            string
 reference_id                optional string
 actor_account_id            optional foreign key -> accounts.id
 actor_label                 optional service/admin label
+api_key_fingerprint        optional SHA-256 fingerprint of the API key used
 description                 optional reason/details
 reversal_of_transaction_id  optional unique self-reference
 created_at                  timestamp
 ```
 
 The actor is either a linked account or an explicit service/admin label. Never rewrite or delete a posted transaction.
+
+New transactions record the configured API client name and a SHA-256 fingerprint of the API key that submitted the request. Each client is explicitly configured as a `name=token` pair in `API_CLIENTS`. This lets operators identify the integration and correlate activity without storing or returning the secret itself. Historical transactions have no client name or fingerprint.
 
 ### `transaction_entries`
 
@@ -113,7 +116,11 @@ Alembic revision `0002_account_identities` converts existing service `external_u
 
 Alembic revision `0003_remove_settings` migrates the former casino account binding into `accounts.account_type = 'casino'`, drops the economy `settings` table, and enforces at most one casino account.
 
-Alembic revision `0004_casino_game_settlements` renames the casino-specific `game_settlements` table to `casino_game_settlements`. Shared balance and ledger tables remain generically named. The deployed schema is currently at this revision.
+Alembic revision `0004_casino_game_settlements` renames the casino-specific `game_settlements` table to `casino_game_settlements`. Shared balance and ledger tables remain generically named.
+
+Alembic revision `0005_api_key_audit` adds the nullable API-key fingerprint field to transaction headers.
+
+Alembic revision `0006_api_key_names` adds the nullable API client name to transaction headers. Existing transactions remain valid and have no retroactively assigned client name or fingerprint. This is the current schema revision.
 
 The checked-in `economy.db` contains only Discord IDs and no Steam mappings. The user chose not to carry those current legacy balances forward. Do not run the SQLite importer for that file. The importer requires an explicit `--confirm-import` flag for any future deliberate import and rejects non-integer balances.
 

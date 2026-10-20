@@ -5,7 +5,8 @@ This API provides shared account, balance, and transaction-ledger operations. Th
 ## Conventions
 
 - Base URL: `http://localhost:8000`
-- Protected routes require `X-API-Key`.
+- Protected routes require `X-API-Key`. Clients listed in `API_READ_ONLY_CLIENTS` may call read endpoints only; other configured clients retain read/write access.
+- Configure clients as explicit `name=token` pairs in `API_CLIENTS` (tokens must not contain commas). Names appear in transaction audit history; the raw token is never stored.
 - External IDs are decimal strings. `steam` means SteamID64; `discord` means a Discord snowflake. `account_id` is the service's internal integer key.
 - A player account can have one Steam identity, one Discord identity, either, or both. Provider IDs are unique across accounts.
 - Balance mutations use integer amounts and unique `reference_id` values for idempotency.
@@ -23,6 +24,8 @@ Identity path examples:
 GET /health/live
 GET /health/ready
 ```
+
+Health endpoints are public. Protected `GET` endpoints require a valid API key and allow read-only clients. All protected `PUT` and `POST` endpoints require a read/write client; a read-only client receives `403 Forbidden` if it attempts a mutation. Configure `API_READ_ONLY_CLIENTS` as a comma-separated list of names from `API_CLIENTS`. Clients not on the read-only list retain read/write access.
 
 ## Accounts and identity links
 
@@ -94,6 +97,8 @@ Negative adjustments fail if the account lacks funds. Credit exchange uses the c
 ## Transaction history and reversals
 
 Transaction history returns each transaction touching the selected account. Each transaction contains its actor and entries with the affected account IDs, linked Steam/Discord IDs, account type, system clearing key (if applicable), and signed money/credit deltas. Negative deltas are debits; positive deltas are credits. Transfers have corresponding debit and credit entries; adjustments/exchanges use system clearing accounts such as `external_money` and `external_credits` to make their other side explicit.
+
+Each new transaction includes `api_key_name` and `api_key_fingerprint`, identifying the configured client and a stable `sha256:`-prefixed fingerprint of the API token that submitted the operation. For example, a transaction may show `api_key_name: "casino-bot"`. The raw token is never stored in the transaction or returned by the API. Transactions created before these audit fields were added return `null`.
 
 ```text
 POST /api/v1/transactions/{transaction_id}/reverse

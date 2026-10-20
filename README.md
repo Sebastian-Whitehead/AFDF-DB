@@ -13,6 +13,8 @@ POST /api/v1/accounts/{provider}/{identity}/identities
 
 `transactions` stores the actor, reason/reference, and reversal relationship. `transaction_entries` records signed deltas for each affected account; transactions use system clearing accounts as counterparts for external adjustments and credit exchange, making the source and destination visible. Transactions are append-only; reverse an eligible transaction by creating one full compensating transaction. A transaction can only be reversed once.
 
+New transaction records include the configured API client name and a SHA-256 fingerprint of the key used to submit them. Configure `API_CLIENTS` using explicit `name=token` pairs (tokens must not contain commas). This identifies the caller for audit purposes without storing the secret itself.
+
 See [API_REFERENCE.md](./API_REFERENCE.md) for request and response formats.
 
 ## Casino integration
@@ -21,14 +23,14 @@ The service currently includes casino-specific binding and game workflows alongs
 
 ## Run with Docker
 
-1. Copy `.env.example` to `.env`, then set a strong `POSTGRES_PASSWORD` and `API_KEYS`.
+1. Copy `.env.example` to `.env`, then set a strong `POSTGRES_PASSWORD` and configure `API_CLIENTS`. Optionally list read-only clients in `API_READ_ONLY_CLIENTS`.
 2. Start the service:
 
 ```text
 docker compose up --build
 ```
 
-The container applies Alembic migrations before starting the API. API docs are at `http://localhost:8000/docs`; protected endpoints require `X-API-Key`.
+The container applies Alembic migrations before starting the API. API docs are at `http://localhost:8000/docs`; protected endpoints require `X-API-Key`. Read-only keys can access `GET` routes but are denied `PUT` and `POST` routes.
 
 ## Legacy SQLite import
 
@@ -50,4 +52,4 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Set `DATABASE_URL` and `API_KEYS` in `.env`. Casino-specific settings are owned by the casino program; its balance is represented as a typed account in the shared economy ledger.
+Set `DATABASE_URL` and `API_CLIENTS` in `.env`. Casino-specific settings are owned by the casino program; its balance is represented as a typed account in the shared economy ledger.

@@ -61,6 +61,8 @@ class Transaction(Base):
     reference_id: Mapped[str | None] = mapped_column(String(255))
     actor_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     actor_label: Mapped[str | None] = mapped_column(String(255))
+    api_key_name: Mapped[str | None] = mapped_column(String(64))
+    api_key_fingerprint: Mapped[str | None] = mapped_column(String(71))
     description: Mapped[str | None] = mapped_column(Text)
     reversal_of_transaction_id: Mapped[UUID | None] = mapped_column(ForeignKey("transactions.id"), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
