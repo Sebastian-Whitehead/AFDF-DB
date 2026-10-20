@@ -45,3 +45,15 @@ def require_write_api_key(
             detail="API key does not have write permission",
         )
     return identify_api_key(key)
+
+
+def require_admin_api_key(
+    x_api_key: str | None = Header(default=None),
+) -> AuthenticatedApiKey:
+    key = validate_api_key(x_api_key)
+    if get_settings().api_clients_by_key[key] not in get_settings().admin_clients:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key does not have account administration permission",
+        )
+    return identify_api_key(key)

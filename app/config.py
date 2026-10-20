@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://economy:change-me@localhost:5432/economy"
     api_clients: str = ""
     api_read_only_clients: str = ""
+    api_admin_clients: str = ""
     token_price: int = 10
     challenge_fee_enabled: bool = True
     challenge_fee_percent: int = 5
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     def read_only_clients(self) -> set[str]:
         return {name.strip() for name in self.api_read_only_clients.split(",") if name.strip()}
 
+    @property
+    def admin_clients(self) -> set[str]:
+        return {name.strip() for name in self.api_admin_clients.split(",") if name.strip()}
+
     @model_validator(mode="after")
     def validate_api_client_configuration(self) -> "Settings":
         entries = [entry.strip() for entry in self.api_clients.split(",") if entry.strip()]
@@ -58,6 +63,11 @@ class Settings(BaseSettings):
         unknown_clients = self.read_only_clients - set(names)
         if unknown_clients:
             raise ValueError("API_READ_ONLY_CLIENTS must contain only configured API_CLIENTS names")
+        unknown_admin_clients = self.admin_clients - set(names)
+        if unknown_admin_clients:
+            raise ValueError("API_ADMIN_CLIENTS must contain only configured API_CLIENTS names")
+        if self.admin_clients & self.read_only_clients:
+            raise ValueError("API_ADMIN_CLIENTS cannot contain read-only clients")
         return self
 
 

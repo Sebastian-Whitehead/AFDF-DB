@@ -4,11 +4,19 @@
 
 General-purpose FastAPI economy service backed by PostgreSQL. It provides shared account, balance, identity, and transaction-ledger capabilities; casino workflows are one integration. Clients use authenticated HTTP; only the service connects to PostgreSQL.
 
+## Application modules
+
+- `app/main.py` creates the FastAPI application and includes domain routers.
+- `app/routers/accounts.py` owns account identity, balance, exchange, and leaderboard routes.
+- `app/routers/transactions.py` owns transfers, transaction history, and reversals.
+- `app/routers/casino.py` owns casino account and game lifecycle routes.
+- `app/services.py` contains shared account lookup/locking, actor, ledger-entry, and transaction response helpers. Keep shared balance and ledger updates in the same SQLAlchemy session/transaction; casino is a router in the same service, not a separately deployed API.
+
 ## Current account and identity model
 
 - `accounts` stores the stable internal account ID, money, credits, account type, optional system-account key, and timestamps. The current casino integration uses `account_type='casino'`; a partial unique index allows only one such account.
 - `account_identities` links each account to up to one SteamID64 and one Discord snowflake. Each provider ID is unique across accounts.
-- Steam and Discord IDs are decimal strings in API contracts to preserve precision in clients.
+- Steam and Discord IDs are canonical ASCII decimal strings in API contracts to preserve precision in clients. Steam IDs are validated as individual SteamID64 values; Discord snowflakes are validated as nonzero unsigned 64-bit integers.
 - Accounts may begin with either identity; link the other through `POST /api/v1/accounts/{provider}/{identity}/identities`.
 - The shared economy service has no `settings` table. Casino configuration is owned by the casino program; its account marker lives on its `accounts` row.
 - The casino-specific lifecycle table is `casino_game_settlements`; shared accounts and ledger tables retain general names.
@@ -21,11 +29,23 @@ General-purpose FastAPI economy service backed by PostgreSQL. It provides shared
 - `external_money` and `external_credits` system accounts are the explicit counterpart entries for external adjustments and credit exchange. System balances can be negative; non-system balances cannot.
 - A transaction can be fully reversed once by appending a compensating transaction. No historical transaction or entry should be edited or deleted.
 - Game reservations, payouts, and refunds also write entries. Game refunds are compensating transactions.
+- General transfers move money or credits between two existing accounts through one balanced transaction; retries must match the original sender, recipient, currency, amount, and reference.
+- Game reservation retries are accepted only when game metadata and original ledger entries match. Settlement retries must match the original winner and result; settled games cannot be refunded and refunded games cannot be settled.
+- Transaction-history pages use stable descending creation-time/UUID ordering and an optional `before` UUID cursor. Response enrichment is batch-loaded for each page rather than queried per transaction.
 
 ## API client credentials and permissions
 
 - Configure tokens as explicit comma-separated `name=token` pairs in `.env` under `API_CLIENTS`; token values must not contain commas. Example shape: `API_CLIENTS=casino-bot=<secret-token>`.
 - `API_READ_ONLY_CLIENTS` is a comma-separated subset of configured client names. Read-only clients can use protected `GET` routes; protected mutation routes require a write-capable client. Unlisted clients have read/write access.
+- `API_ADMIN_CLIENTS` is a comma-separated subset of configured client names, disjoint from read-only clients. Account association/merge and provider-identity recovery require this elevated scope; provision a dedicated admin token.
+- Example development-only read key: `default-read=default_read` with `API_READ_ONLY_CLIENTS=default-read`. Never use this predictable example credential in production.
+- Send the token in the `X-API-Key` header. Never place tokens in source code, logs, URLs, committed files, or LLM prompts. `.env` is git-ignored; replace all example tokens and restart the service after changing credentials.
+- `POST /api/v1/accounts/{provider}/{identity}/identities` links Steam and Discord identities. The URL identity must already resolve to a user account; the JSON body has the other identity, e.g. `{"identity":{"provider":"discord","value":"123456789012345678"}}`. Call it with a client listed in `API_ADMIN_CLIENTS`.
+- Example: `POST /api/v1/accounts/steam/76561198000000000/identities` with `X-API-Key: <admin-token>` and body `{"identity":{"provider":"discord","value":"123456789012345678"}}`. Reverse the URL and body providers to start from Discord.
+- If the supplied identity belongs to another user account, that account is merged into the URL account: balances are summed and identity, transaction-entry, transaction-actor, and casino-game creator references are reassigned atomically. The URL account survives. Conflicting identities for the same provider, non-user account types, or signed-64-bit balance overflow are rejected.
+- If neither ID has an account, first `PUT /api/v1/accounts/{provider}/{identity}` for the identity intended as the starting account, then POST the link request. Avoid PUT on the second ID just to associate it; PUT would create a separate account that the subsequent link would merge.
+- Verify a successful link with `GET /api/v1/accounts/steam/{steam_id}` and `GET /api/v1/accounts/discord/{discord_id}`. Both should return the same `account_id`. Protected GET routes accept read-only keys; identity linking and migration do not.
+- `POST /api/v1/accounts/{provider}/{identity}/migrate` replaces a lost Steam or Discord identity with another identity from the same provider. If the destination ID already belongs to another user account, that account survives and the old identity is discarded while compatible identities, balances, and history are merged. The operation is idempotent and admin-only.
 - Transaction history includes the client name and SHA-256 token fingerprint. The fingerprint supports matching transactions to a token without storing the secret; the name is the stable human-readable integration identifier.
 - `.env` is ignored by Git. Never expose or commit token values, passwords, or other secrets.
 
@@ -53,6 +73,9 @@ The local `economy.db` file stores Discord IDs only and has no Steam mapping. Th
 - Do not trust client-provided payouts or fees.
 - Do not expose PostgreSQL publicly or reintroduce direct SQLite writes.
 
-## Verification status
+## Documentation and verification
 
-The API-key naming and transaction audit changes were validated with 18 passing tests, Python compilation, Compose configuration checks, and a live API health/read test. The live schema was verified at revision `0006_api_key_names`. Re-run relevant tests and deployment checks after further changes; do not assume these verification results cover later edits.
+- `README.md` contains service setup and a quick identity-link workflow.
+- `API_REFERENCE.md` is the canonical route/request/response reference, including identity-link and recovery behavior.
+- API docs are served by FastAPI at `/docs`; protected requests require `X-API-Key`.
+- Do not assume a test or prior verification result applies to new changes. Run focused tests and check the current database revision before describing implementation status.

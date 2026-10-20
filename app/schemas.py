@@ -1,16 +1,29 @@
+"""Pydantic request and response models for the public API."""
+
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from .identities import validate_identity_value
+
 
 class IdentityRef(BaseModel):
+    """A provider-qualified external account identifier."""
+
     provider: Literal["steam", "discord"]
-    value: str = Field(pattern=r"^\d{1,20}$")
+    value: str = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_provider_value(self) -> "IdentityRef":
+        validate_identity_value(self.provider, self.value)
+        return self
 
 
 class TransactionActor(BaseModel):
+    """Identify a transaction actor by account identity or service label."""
+
     identity: IdentityRef | None = None
     label: str | None = Field(default=None, min_length=1, max_length=255)
 
@@ -91,6 +104,16 @@ class ExchangeRequest(BaseModel):
     actor: TransactionActor
 
 
+class TransferRequest(BaseModel):
+    """Move one currency between two existing accounts."""
+
+    sender: IdentityRef
+    recipient: IdentityRef
+    currency: Literal["money", "credits"]
+    amount: int = Field(gt=0, le=9_223_372_036_854_775_807)
+    reference_id: str = Field(min_length=1, max_length=255)
+
+
 class CasinoBindRequest(BaseModel):
     identity: IdentityRef
 
@@ -99,23 +122,45 @@ class LinkIdentityRequest(BaseModel):
     identity: IdentityRef
 
 
+class MigrateIdentityRequest(BaseModel):
+    """Replace a lost provider identity with a new identity of the same provider."""
+
+    identity: IdentityRef
+
+
 class PlayerWager(BaseModel):
     identity: IdentityRef
-    amount: int = Field(gt=0)
+    amount: int = Field(gt=0, le=9_223_372_036_854_775_807)
 
 
 class ReserveRequest(BaseModel):
+    """Reserve one game wager across one or more participating accounts."""
+
     game_type: str = Field(min_length=1, max_length=64)
     currency: Literal["money", "credits"]
     players: list[PlayerWager] = Field(min_length=1)
     reference_id: str = Field(min_length=1, max_length=255)
     actor: TransactionActor
 
+    @model_validator(mode="after")
+    def validate_wager_total(self) -> "ReserveRequest":
+        if sum(player.amount for player in self.players) > 9_223_372_036_854_775_807:
+            raise ValueError("Combined wager exceeds the supported balance range")
+        return self
+
 
 class SettleRequest(BaseModel):
+    """Settle a reserved game with caller-supplied result metadata."""
+
     winner: IdentityRef
     result: dict[str, Any] = Field(default_factory=dict)
     actor: TransactionActor
+
+    @model_validator(mode="after")
+    def validate_result_fields(self) -> "SettleRequest":
+        if {"fee", "payout"} & self.result.keys():
+            raise ValueError("Result cannot set reserved fee or payout fields")
+        return self
 
 
 class ReverseTransactionRequest(BaseModel):
