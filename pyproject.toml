@@ -1,0 +1,19 @@
+[project]
+name = "economy-service"
+version = "0.1.0"
+description = "Standalone PostgreSQL-backed economy API"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic-settings>=2.7,<3",
+  "alembic>=1.15,<2",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28,<1", "pytest>=8.3,<9", "pytest-asyncio>=0.25,<1"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -1,0 +1,48 @@
+# Economy Service Context
+
+## Project
+
+General-purpose FastAPI economy service backed by PostgreSQL. It provides shared account, balance, identity, and transaction-ledger capabilities; casino workflows are one integration. Clients use authenticated HTTP; only the service connects to PostgreSQL.
+
+## Current account and identity model
+
+- `accounts` stores the stable internal account ID, money, credits, account type, optional system-account key, and timestamps. The current casino integration uses `account_type='casino'`; a partial unique index allows only one such account.
+- `account_identities` links each account to up to one SteamID64 and one Discord snowflake. Each provider ID is unique across accounts.
+- Steam and Discord IDs are decimal strings in API contracts to preserve precision in clients.
+- Accounts may begin with either identity; link the other through `POST /api/v1/accounts/{provider}/{identity}/identities`.
+- The shared economy service has no `settings` table. Casino configuration is owned by the casino program; its account marker lives on its `accounts` row.
+
+## Current transaction model
+
+- `transactions` records type, reference/idempotency key, reason, actor account or service label, timestamp, and optional `reversal_of_transaction_id`.
+- `transaction_entries` records signed money/credit deltas per internal account. The entries identify debits and credits and expose linked Steam/Discord identities in API responses.
+- `external_money` and `external_credits` system accounts are the explicit counterpart entries for external adjustments and credit exchange. System balances can be negative; non-system balances cannot.
+- A transaction can be fully reversed once by appending a compensating transaction. No historical transaction or entry should be edited or deleted.
+- Game reservations, payouts, and refunds also write entries. Game refunds are compensating transactions.
+
+## Runtime and development
+
+- Python 3.12, FastAPI, SQLAlchemy 2.x async ORM, psycopg, PostgreSQL 16, Alembic.
+- Start: `docker compose up -d --build`
+- Stop: `docker compose down`
+- API docs: `http://localhost:8000/docs`
+- Health endpoints: `/health/live`, `/health/ready`
+- Protected routes require `X-API-Key`.
+- `.env` is ignored by Git; never commit API keys or database passwords.
+- Docker applies Alembic migrations before starting Uvicorn.
+
+## Legacy SQLite
+
+The checked-in `economy.db` stores Discord IDs only and has no Steam mapping. The user chose not to carry the current legacy balances forward. Do not run the importer for that database. The importer requires `--confirm-import`, rejects non-integer balances, and if intentionally used creates Discord-linked accounts.
+
+## Important constraints
+
+- Keep balance values as integers; reject insufficient funds rather than clamping.
+- Resolve account operations through a provider-qualified identity and store ledger references by internal account ID.
+- Lock affected accounts in deterministic order and write balance updates and ledger entries in the same database transaction.
+- Do not trust client-provided payouts or fees.
+- Do not expose PostgreSQL publicly or reintroduce direct SQLite writes.
+
+## Verification status
+
+The model/API changes and unit tests must be validated locally. No claim of live PostgreSQL or Docker integration verification should be made unless those checks are run in this environment.
